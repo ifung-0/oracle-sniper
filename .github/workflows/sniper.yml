@@ -23,13 +23,15 @@ jobs:
           WEBHOOK = os.getenv("DISCORD_WEBHOOK")
           def ping(msg):
               if not WEBHOOK:
+                  print("PING SKIPPED: no DISCORD_WEBHOOK env")
                   return
               try:
                   req = urllib.request.Request(WEBHOOK, data=json.dumps({"content": msg}).encode(),
                                                headers={"Content-Type": "application/json"})
                   urllib.request.urlopen(req, timeout=10)
-              except Exception:
-                  pass
+                  print("PING SENT:", msg[:60])
+              except Exception as ex:
+                  print("PING FAILED:", ex)
           try:
               cfg = oci.config.from_file()
               comp = cfg["tenancy"]
@@ -55,7 +57,7 @@ jobs:
                           shape_config=oci.core.models.LaunchInstanceShapeConfigDetails(ocpus=4, memory_in_gbs=24),
                           source_details=oci.core.models.InstanceSourceViaImageDetails(
                               image_id=image, boot_volume_size_in_gbs=100),
-                          create_vnic_details=oci.core.models.CreateVnicDetails(
+                      create_vnic_details=oci.core.models.CreateVnicDetails(
                               subnet_id=subnet, assign_public_ip=True),
                           metadata={"ssh_authorized_keys": pubkey}))
                       ping("🎉 LAUNCHED! " + r.data.id + " in " + ad + " - time to build the SMP!")
@@ -74,4 +76,3 @@ jobs:
           python sniper.py
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-

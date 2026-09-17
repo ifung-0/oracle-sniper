@@ -19,36 +19,58 @@ jobs:
           chmod 600 ~/.oci/oci_api_key.pem
       - run: |
           cat > sniper.py << 'EOF'
-          import oci, os, sys
-          cfg = oci.config.from_file()
-          comp = cfg["tenancy"]
-          compute = oci.core.ComputeClient(cfg)
-          ident = oci.identity.IdentityClient(cfg)
-          net = oci.core.VirtualNetworkClient(cfg)
-          instances = compute.list_instances(compartment_id=comp, display_name="premium-smp").data
-          if instances:
-              print("Server already exists:", instances[0].id); sys.exit(0)
-          subs = [s for s in net.list_subnets(compartment_id=comp).data if not s.prohibit_public_ip_on_vnic]
-          subnet = subs[0].id
-          ads = [d.name for d in ident.list_availability_domains(compartment_id=comp).data]
-          image = compute.list_images(compartment_id=comp, operating_system="Canonical Ubuntu",
-                                      shape="VM.Standard.A1.Flex", sort_by="TIMECREATED",
-                                      sort_order="DESC").data[0].id
-          pubkey = open(os.path.expanduser("~/.ssh/smp_key.pub")).read()
-          for ad in ads:
+          import oci, os, sys, json, urllib.request
+          WEBHOOK = os.getenv("DISCORD_WEBHOOK")
+          def ping(msg):
+              if not WEBHOOK:
+                  return
               try:
-                  r = compute.launch_instance(oci.core.models.LaunchInstanceDetails(
-                      compartment_id=comp, availability_domain=ad, display_name="premium-smp",
-                      shape="VM.Standard.A1.Flex",
-                      shape_config=oci.core.models.LaunchInstanceShapeConfigDetails(ocpus=4, memory_in_gbs=24),
-                      source_details=oci.core.models.InstanceSourceViaImageDetails(
-                          image_id=image, boot_volume_size_in_gbs=100),
-                      create_vnic_details=oci.core.models.CreateVnicDetails(
-                          subnet_id=subnet, assign_public_ip=True),
-                      metadata={"ssh_authorized_keys": pubkey}))
-                  print("LAUNCHED!", r.data.id, "in", ad); sys.exit(0)
-              except Exception as e:
-                  print(ad, getattr(e, "message", str(e))[:200])
-          print("No capacity this round")
+                  req = urllib.request.Request(WEBHOOK, data=json.dumps({"content": msg}).encode(),
+                                               headers={"Content-Type": "application/json"})
+                  urllib.request.urlopen(req, timeout=10)
+              except Exception:
+                  pass
+          try:
+              cfg = oci.config.from_file()
+              comp = cfg["tenancy"]
+              compute = oci.core.ComputeClient(cfg)
+              ident = oci.identity.IdentityClient(cfg)
+              net = oci.core.VirtualNetworkClient(cfg)
+              instances = compute.list_instances(compartment_id=comp, display_name="premium-smp").data
+              if instances:
+                  print("Server already exists:", instances[0].id)
+                  sys.exit(0)
+              subs = [s for s in net.list_subnets(compartment_id=comp).data if not s.prohibit_public_ip_on_vnic]
+              subnet = subs[0].id
+              ads = [d.name for d in ident.list_availability_domains(compartment_id=comp).data]
+              image = compute.list_images(compartment_id=comp, operating_system="Canonical Ubuntu",
+                                          shape="VM.Standard.A1.Flex", sort_by="TIMECREATED",
+                                          sort_order="DESC").data[0].id
+              pubkey = open(os.path.expanduser("~/.ssh/smp_key.pub")).read()
+              for ad in ads:
+                  try:
+                      r = compute.launch_instance(oci.core.models.LaunchInstanceDetails(
+                          compartment_id=comp, availability_domain=ad, display_name="premium-smp",
+                          shape="VM.Standard.A1.Flex",
+                          shape_config=oci.core.models.LaunchInstanceShapeConfigDetails(ocpus=4, memory_in_gbs=24),
+                          source_details=oci.core.models.InstanceSourceViaImageDetails(
+                              image_id=image, boot_volume_size_in_gbs=100),
+                          create_vnic_details=oci.core.models.CreateVnicDetails(
+                              subnet_id=subnet, assign_public_ip=True),
+                          metadata={"ssh_authorized_keys": pubkey}))
+                      ping("🎉 LAUNCHED! " + r.data.id + " in " + ad + " - time to build the SMP!")
+                      print("LAUNCHED!", r.data.id, "in", ad)
+                      sys.exit(0)
+                  except Exception as e:
+                      print(ad, getattr(e, "message", str(e))[:200])
+              print("No capacity this round")
+          except SystemExit:
+              raise
+          except Exception as e:
+              ping("💥 Sniper crashed: " + getattr(e, "message", str(e))[:300])
+              raise
           EOF
           python sniper.py
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+

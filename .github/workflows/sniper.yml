@@ -63,6 +63,7 @@ jobs:
                       sys.exit(0)
                   except Exception as e:
                       print(ad, getattr(e, "message", str(e))[:200])
+              ping("⛏️ Round " + os.getenv("GITHUB_RUN_NUMBER", "?") + ": still no capacity in Singapore. Next try in 5 min.")
               print("No capacity this round")
           except SystemExit:
               raise
